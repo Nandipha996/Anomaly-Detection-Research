@@ -245,3 +245,113 @@ These notes are my grounding for Phase 2. The goal is to move into preprocessing
 * what I am trying to achieve
 * how this supports my proposal
 * and where the current dataset helps or needs to be complemented by others.
+
+---
+
+## 5. Data strategy update – multi-dataset and synthetic anomalies
+
+I want to be clear now about how this ambient temperature series fits into the bigger picture, and how other datasets and synthetic anomalies will join the study.
+
+### 5.1 Role of the ambient temperature dataset
+
+* This series remains my **first, deep case study**.
+* It is my concrete example of an **operational business time series** with:
+
+  * hourly sampling
+  * clear normal operating band
+  * a small number of labelled anomalies
+  * visible slower changes in baseline over time
+* I will use it to:
+
+  * explain key concepts (anomalies, drift, imbalance)
+  * illustrate behaviour of methods qualitatively
+  * anchor discussions about efficiency and hardware constraints
+
+However, I now recognise that it **cannot** be the only dataset carrying the whole thesis, because it has only 2 labelled anomalies.
+
+### 5.2 Plan for additional datasets
+
+I will introduce **additional time series datasets** so that the overall research is richer and more convincing:
+
+* At least one more NAB series (or similar) with **more labelled anomalies**.
+* Possibly a third time series from NAB or Yahoo S5 that brings a different pattern or domain.
+
+For each new dataset, I will:
+
+* Do a **lighter Data Overview** (not as deep as the ambient one), focusing on:
+
+  * basic structure and columns
+  * time index behaviour
+  * anomaly counts and imbalance
+  * one or two key plots for intuition
+* Capture this in its own notebook, for example:
+
+  * `01b_data_overview_<dataset_name>.ipynb`
+
+This way, I build a small **family of datasets**, each with a clear role, instead of one heavy example on its own.
+
+### 5.3 Shared preprocessing pipeline, with dataset-specific steps
+
+In Phase 2, my preprocessing notebook will be designed to support **multiple datasets**, not just ambient:
+
+* I will separate preprocessing into:
+
+  * **generic steps** that any time series needs:
+
+    * parse time column to datetime
+    * sort by time
+    * remove duplicates
+    * check and possibly handle missing values
+    * standardise column names (e.g. `timestamp`, `value`, `anomaly_label`)
+  * **dataset-specific steps** that only apply to certain series:
+
+    * for ambient: convert `value` from °F to °C and rename to `temperature_c`
+    * for other series: handle any special codes or quirks they may have
+
+The idea is to have a small set of reusable functions for basic cleaning, and then a few simple conditional steps or helper functions for dataset-specific logic. This keeps the pipeline consistent but still flexible.
+
+The preprocessing notebook will save cleaned outputs to something like `data/processed/<dataset_id>_clean.*` so that all later experiment notebooks can load from the same, documented source of truth.
+
+### 5.4 How synthetic anomalies will fit into the project
+
+Synthetic anomalies will sit on top of **real background series**. The idea is:
+
+* Use a cleaned real series (for example, the ambient temperature series or another NAB signal) as the **normal background**.
+* Inject different shapes of anomalies in a controlled way, such as:
+
+  * sudden spikes
+  * level shifts (step changes)
+  * flatlines (sensor stuck)
+  * noisy bursts
+* Record the positions and types of these injected anomalies as **synthetic labels**.
+
+This will give me:
+
+* Datasets with **natural anomalies** (as labelled in NAB/Yahoo).
+* Datasets with **synthetic-on-real anomalies** where I know exactly what I injected and why.
+
+Both types are useful:
+
+* Natural datasets support the claim that methods are tested on real-world patterns.
+* Synthetic-on-real datasets allow more controlled experiments where I can systematically vary:
+
+  * anomaly frequency
+  * anomaly strength
+  * when anomalies appear in time (early vs late), tying back to concept drift.
+
+### 5.5 What this means for the next concrete steps
+
+Before we go deeper into Phase 2, I will:
+
+* Add a small **data inventory table or section** to this planning file later, listing:
+
+  * Dataset A: ambient temperature (case study + drift)
+  * Dataset B: another NAB/Yahoo series (richer anomaly counts)
+  * Dataset C: optional third series (if needed)
+  * Synthetic variants: which real series they are based on and what types of anomalies are injected
+* Then:
+
+  * choose one additional dataset (Dataset B)
+  * create a light Data Overview notebook for it
+
+Only after that will I start building the shared preprocessing notebook, so that the design already matches the fact that more than one dataset will be involved.
