@@ -147,6 +147,21 @@ These 5 labelled anomalies will act as **ground truth** when comparing different
   * The choice of **evaluation metrics** (e.g., precision, recall, F1 on anomaly windows).
   * The interpretation of results, since high overall accuracy can be misleading in such settings.
 
+## Zoomed anomaly regions – local views around labelled events
+
+* For each labelled anomaly in the NYC taxi series, a 24-hour window (one day before and one day after the anomaly timestamp) is plotted.
+* Within each window, the main line shows **half-hourly taxi demand**, and the labelled anomaly appears as a **red point**.
+* These zoomed plots help show whether an anomaly behaves like:
+
+  * a clear **spike** above the usual daily pattern,
+  * a deep **drop** in demand compared to neighbouring points, or
+  * a more **structural change** where the whole local pattern looks different.
+* The 24-hour context makes it easier to see how each anomaly compares to:
+
+  * the typical daily cycle (rise during the day, fall at night), and
+  * nearby days that may be busier or quieter.
+* In Chapter 4 (Data Exploration), these views will support short descriptions of each anomaly type (spike, dip, or pattern change), and will help justify why NYC taxi is a realistic testbed for diffusion-based anomaly detection under **rare but impactful events**.
+
 ## 11. Preprocessing and modelling notes
 
 Based on the overview, the following design choices are reasonable for the preprocessing phase (`02_preprocessing.ipynb`):
