@@ -11,7 +11,7 @@ Implementation status per case:
 
 * **Case A (Ambient)** – preprocessing **implemented and saved**.
 * **Case B (NYC taxi)** – preprocessing **implemented and saved**.
-* **Case C (CPU)** – preprocessing **planned, not yet implemented**.
+* **Case C (CPU)** – preprocessing **implemented and saved**.
 * **Case D (AIOps KPI)** – preprocessing **planned, not yet implemented**.
 
 ---
@@ -71,16 +71,14 @@ Datasets may have additional analysis-only columns later (e.g. incident flags), 
 ### 1.4 Scaling (global rule)
 
 * Each dataset’s `value` column is standardised with **`sklearn.preprocessing.StandardScaler`**.
-
 * The scaler is **fitted only on the training split** (`train_df["value"]`) to avoid information leakage from validation/test.
-
 * The learned **mean and standard deviation** are stored as a small dictionary per case:
 
   * Ambient: `ambient_scaler_params = {"mean": ..., "std": ...}`
   * NYC taxi: `nyc_taxi_scaler_params = {"mean": ..., "std": ...}`
-  * CPU / AIOps KPI: analogous dictionaries to be created when preprocessing is implemented.
-
-* The fitted scaler is then applied to the **full processed dataframe** (train, validation, test) to produce `value_scaled`.
+  * CPU: `cpu_scaler_params = {"mean": ..., "std": ...}`
+  * AIOps KPI: `aiops_kpi_scaler_params = {"mean": ..., "std": ...}` (to be created when preprocessing is implemented)
+* The fitted scaler is applied to the **full processed dataframe** (train, validation, test) to produce `value_scaled`.
 
 This gives:
 
@@ -93,13 +91,9 @@ This gives:
 
 * For each case, there is **one full processed dataframe** (e.g. `*_full.csv`) that retains **all rows**.
 
-* Split-specific dataframes (`train_df`, `validation_df`, `test_df`) are created with **boolean masks** on `df["split"]` and `.copy()`, e.g.:
+* Split-specific dataframes (`train_df`, `validation_df`, `test_df`) are created with boolean masks on `df["split"]` and `.copy()`.
 
-  ```python
-  train_df = df[df["split"] == "train"].copy()
-  ```
-
-* **Integrity checks confirm**:
+* Integrity checks confirm:
 
   ```text
   len(df) == len(train_df) + len(validation_df) + len(test_df)
@@ -113,19 +107,29 @@ This gives:
   * Validation and test include labelled anomalies and, where possible, **regime changes** or drift.
   * At least some anomalies must appear in the test split for final evaluation.
 
+#### Split validity documentation (cross-case)
+
+Split validity is documented using outputs already produced by the notebooks:
+
+* a split summary table (start/end times, rows, anomaly counts, proportions),
+* an integrity check confirming non-destructive split creation, and
+* an anomaly placement preview confirming where labelled anomalies fall.
+
+Most datasets naturally satisfy validity expectations under their split rules (Ambient anomaly-based boundaries; NYC taxi calendar-month boundaries). The CPU case requires an additional dataset-specific constraint to prevent the evaluation windows from collapsing due to the short end-of-series regime tail.
+
 ### 1.6 Outputs and directory structure
 
 Under a project-level `data/processed/` directory, each case has its own subfolder:
 
 * `data/processed/ambient/`
 * `data/processed/nyc_taxi/`
-* `data/processed/cpu/`
+* `data/processed/cpu_utilisation/`
 * `data/processed/aiops_kpi/`
 
 Each subfolder contains:
 
-* one **full processed file** (`*_full.csv` or `*_processed_full.csv`), and
-* three **split files** (`*_train.csv`, `*_val.csv` or `*_validation.csv`, `*_test.csv`),
+* one **full processed file** (`*_full.csv`), and
+* three **split files** (`*_train.csv`, `*_validation.csv`, `*_test.csv`),
 
 all with the standard schema.
 
@@ -179,7 +183,7 @@ all with the standard schema.
 
 **Splits (using anomaly-based boundaries)**
 
-* Anomaly times (from summary table):
+* Anomaly times:
 
   * First anomaly: 2013-12-22 20:00
   * Second anomaly: 2014-04-13 09:00
@@ -191,24 +195,20 @@ all with the standard schema.
 
 * Split assignment:
 
-  * `train` : dataset start (2013-07-04 00:00) → `training_end_time`
-  * `validation` : just after `training_end_time` → `validation_end_time`
-  * `test` : just after `validation_end_time` → dataset end
+  * `train`: dataset start → `training_end_time`
+  * `validation`: just after `training_end_time` → `validation_end_time`
+  * `test`: just after `validation_end_time` → dataset end
 
-* `split_summary` records for each split:
+* Summary tables record:
 
-  * `Start_time`, `End_time`,
-  * `Rows`, `Anomalies`,
-  * `Proportion (%)` of total rows.
-  * Result: 1 anomaly in validation, 1 in test, none in train.
+  * start/end times, row counts, anomaly counts, and proportions,
+  * integrity check confirming split sizes add up.
 
 **Scaling**
 
-* Fit `StandardScaler` using **only** `train_df["value"]` (Celsius).
-* Store parameters in `ambient_scaler_params = {"mean": ..., "std": ...}`.
+* Fit `StandardScaler` using only `train_df["value"]` (Celsius).
+* Store `ambient_scaler_params = {"mean": ..., "std": ...}`.
 * Apply scaler to full dataframe to create `value_scaled`.
-* Training split: `value_scaled` mean ≈ 0, std ≈ 1.
-* Split-level summary (`mean`, `std`, `min`, `max`) documents drift across validation and test.
 
 **Final column order**
 
@@ -225,7 +225,7 @@ Saved under `data/processed/ambient/`:
 * `ambient_validation.csv` – `split == "validation"`.
 * `ambient_test.csv` – `split == "test"`.
 
-These files are the **canonical processed artefacts** for Case Study A.
+These files are the canonical processed artefacts for Case Study A.
 
 ---
 
@@ -246,24 +246,17 @@ These files are the **canonical processed artefacts** for Case Study A.
 * Load `nyc_taxi.csv` and NAB `combined_labels.json`.
 * Extract labels for `"realKnownCause/nyc_taxi.csv"`.
 * Convert label list to datetimes and create `is_anomaly` via `.isin(...)`.
-* Class balance:
-
-  * 10 315 normal points
-  * 5 anomalies (≈ 0.048% of series).
 
 **Step 2 – Standardise core columns (`time`, `value`, `is_anomaly`, `case_study`)**
 
 * Convert `timestamp` to `datetime`, sort chronologically.
 * Rename `timestamp → time`.
 * Add `case_study = "nyc_taxi"`.
-* Core view: `time, value, is_anomaly, case_study`.
 
 **Step 3 – Missing values and duplicate-rows sanity check**
 
 * Missing-values summary: 0 missing values in all core columns.
 * Duplicate-rows summary: 0 exact duplicates.
-
-No imputation or deduplication is required.
 
 **Step 4 – Time-based features**
 
@@ -273,39 +266,23 @@ No imputation or deduplication is required.
   * `day_of_week = df["time"].dt.weekday`
   * `is_weekend = df["day_of_week"].isin([5, 6]).astype(int)`
 
-These features capture strong daily and weekly structure.
-
 **Step 5 – Inspect anomalies and overall time span**
 
-* Anomaly summary table:
-
-  * Anomaly ID (1–5)
-  * `time` (timestamp)
-  * `value` (trip count)
-
-* Overall span summary:
-
-  * Start time: 2014-07-01 00:00
-  * End time: 2015-01-31 23:30
-  * Number of rows: 10 320
-  * Total duration: 214 days
-
-These are later used to justify split design and coverage.
+* Anomaly summary table lists anomaly IDs, timestamps, and trip counts.
+* Overall span summary lists start/end time, row count, and duration.
 
 **Step 6 – Define chronological train / validation / test boundaries**
 
-* Use **calendar months**:
+* Calendar-month split design:
 
   * Training: July–October 2014
   * Validation: November–December 2014
   * Test: January 2015
 
-* Implemented via timestamps:
+* Implemented via:
 
   * `training_end_time = "2014-10-31 23:30:00"`
   * `validation_end_time = "2014-12-31 23:30:00"`
-
-* Boundary summary table lists start/end of dataset and these boundaries.
 
 * Anomaly-versus-split preview confirms:
 
@@ -315,99 +292,173 @@ These are later used to justify split design and coverage.
 
 **Step 7 – Assign split labels and summarise segments**
 
-* Define `assign_split(time_value)` using the boundaries to return `"train"`, `"validation"`, or `"test"`.
-* Create `df["split"]` by applying this function to `df["time"]`.
-* `split_summary` (rows ordered train → validation → test) includes:
-
-  * `Start_time`, `End_time`
-  * `Rows`, `Anomalies`
-  * `Proportion (%)`
-
-Current segment sizes:
-
-* Train: 5 904 rows (≈ 57.2%), 0 anomalies
-* Validation: 2 928 rows (≈ 28.4%), 3 anomalies
-* Test: 1 488 rows (≈ 14.4%), 2 anomalies
+* Create `df["split"]` from the boundary timestamps.
+* Summary table reports start/end times, rows, anomalies, and proportions.
 
 **Step 8 – Create split-specific dataframes and integrity check**
 
-* Non-destructive splits:
-
-  ```python
-  train_df = df[df["split"] == "train"].copy()
-  validation_df = df[df["split"] == "validation"].copy()
-  test_df = df[df["split"] == "test"].copy()
-  ```
-
-* Integrity table shows:
-
-  * `len(df)` = 10 320
-  * `len(train_df) + len(validation_df) + len(test_df)` = 10 320
-  * No rows lost or duplicated.
+* Create split dataframes via masks and `.copy()`.
+* Integrity table confirms split sizes add up to the full dataset.
 
 **Step 9 – Standardise NYC taxi demand**
+
+* Fit `StandardScaler` on `train_df[["value"]]` only.
+* Store parameters in `nyc_taxi_scaler_params`.
+* Apply to full dataframe to produce `value_scaled`.
+
+**Step 10 – Column order and recreation of splits**
+
+* Reorder to common schema.
+* Recreate split dataframes from final `df` so that all splits include `value_scaled` and the final column order.
+
+### 3.3 NYC taxi outputs
+
+Saved under `data/processed/nyc_taxi/`:
+
+* `nyc_taxi_full.csv` – full processed NYC taxi dataset.
+* `nyc_taxi_train.csv` – `split == "train"`.
+* `nyc_taxi_val.csv` – `split == "validation"`.
+* `nyc_taxi_test.csv` – `split == "test"`.
+
+All splits are derived directly from `nyc_taxi_full.csv`.
+
+---
+
+## 4. Case Study C – CPU utilisation (ASG misconfiguration, NAB)
+
+> **Status:** Preprocessing **implemented and saved**.
+
+### 4.1 Raw data summary
+
+* Source file: `cpu_utilization_asg_misconfiguration.csv` (NAB `realKnownCause`).
+* Interpretation: CPU utilisation (%) for an autoscaling group under misconfiguration conditions.
+* Sampling: 5-minute observations.
+* Label source: NAB `combined_labels.json` with key `"realKnownCause/cpu_utilization_asg_misconfiguration.csv"`.
+* Labelled anomalies: 2 timestamps.
+
+### 4.2 Implemented preprocessing steps (CPU C)
+
+**Step 1 – Load dataset and attach anomaly labels**
+
+* Load raw CSV and NAB `combined_labels.json`.
+* Extract labels for `"realKnownCause/cpu_utilization_asg_misconfiguration.csv"`.
+* Convert timestamps to `datetime`, sort chronologically.
+* Create `is_anomaly` via `df["timestamp"].isin(cpu_label_times).astype(int)`.
+* Class balance is extreme (two labelled anomalies in the full series).
+
+**Step 2 – Standardise core columns (`time`, `value`, `is_anomaly`, `case_study`)**
+
+* Convert `timestamp` to `datetime` and rename `timestamp → time`.
+* Add `case_study = "cpu"`.
+* The `value` field represents CPU utilisation in percent.
+
+**Step 3 – Missing values and duplicate-rows sanity check**
+
+* Missing-values summary table confirms 0 missing in core columns.
+* Duplicate-rows summary confirms 0 exact duplicate rows.
+
+**Step 4 – Time-based features**
+
+* Add:
+
+  * `hour_of_day`
+  * `day_of_week`
+  * `is_weekend`
+
+**Step 5 – Inspect anomalies and overall time span (plus sampling confirmation)**
+
+* Anomaly summary table lists the two labelled anomaly timestamps and their CPU utilisation values.
+* Time span summary table reports dataset start/end, row count, and duration.
+* A sampling check confirms 5-minute spacing as the most common interval.
+
+**Step 6 – Define chronological boundaries using regime structure (CPU-specific design)**
+
+The CPU split design uses a regime-informed approach because the labelled anomalies occur near the end of the series and align with late-stage changes in behaviour.
+
+* **Baseline reference window (7-day cutoff)**
+
+  * A baseline period is defined as the early part of the series ending 7 days before the first labelled anomaly.
+  * A sensitivity check compares candidate baseline cutoffs (7, 14, 21 days) and shows similar mean and threshold behaviour across options, supporting a 7-day cutoff while retaining more baseline data.
+
+* **Reference thresholds from baseline behaviour**
+
+  * High reference threshold: 99.5th percentile of baseline hourly values.
+  * Low reference threshold: 5th percentile of baseline hourly values.
+
+* **Hourly overview series (analysis-only for boundary selection)**
+
+  * An hourly view is created to support robust boundary selection and visual interpretation of sustained changes.
+  * A 24-hour moving median is used to smooth the hourly series to focus on sustained transitions rather than isolated spikes.
+
+* **Regime change points and split boundaries**
+
+  * The start of the higher/unstable period is identified when the smoothed hourly series first rises above the high reference threshold.
+  * The start of the later lower period is identified when the smoothed hourly series first falls below the low reference threshold.
+
+* **Buffers tied to smoothing window**
+
+  * Buffers are applied so that split boundaries do not sit directly on the detected transition points.
+  * With a 24-hour smoothing window:
+
+    * training buffer: 48 hours
+    * validation buffer: 12 hours
+
+* **Minimum test duration constraint (CPU-specific split validity)**
+
+  * A minimum test duration is enforced to prevent the evaluation tail from collapsing.
+  * The minimum duration is set to 2 days under 5-minute sampling.
+  * If necessary, `validation_end_time` is adjusted earlier to maintain the minimum test coverage while preserving `training_end_time`.
+
+**Step 7 – Assign split labels and summarise segments**
+
+* Assign `split` using the boundary timestamps.
+* Summary table reports:
+
+  * start/end times,
+  * row counts and durations,
+  * anomaly counts,
+  * split proportions.
+
+**Step 8 – Create split dataframes and integrity checks**
+
+* Create `train_df`, `validation_df`, `test_df` by masking `df["split"]`.
+* Integrity checks confirm:
+
+  * each split is time-sorted,
+  * train ends before validation starts,
+  * validation ends before test starts,
+  * the combined split lengths match the full dataframe.
+
+**Step 9 – Standardise CPU utilisation**
 
 * Fit `StandardScaler` on `train_df[["value"]]` only.
 
 * Store parameters:
 
   ```python
-  nyc_taxi_scaler_params = {
-      "mean": float(scaler.mean_[0]),
-      "std": float(scaler.scale_[0]),
-  }
+  cpu_scaler_params = {"mean": ..., "std": ...}
   ```
 
-* Apply to full dataframe:
+* Apply to full dataframe to create `value_scaled`.
 
-  ```python
-  df["value_scaled"] = scaler.transform(df[["value"]])
-  ```
+* A training-only summary confirms mean ≈ 0 and std ≈ 1 on the training split.
 
-* Training split check:
+**Final column order**
 
-  * `value_scaled` mean ≈ 0.0000
-  * `value_scaled` std ≈ 1.0001
-
-* Split-level summary (`mean`, `std`, `min`, `max` of `value_scaled`) documents how validation and test differ from training while remaining on the same scale.
-
-**Step 10 – Column order and recreation of splits**
-
-* Reorder NYC taxi dataframe to common schema:
+* CPU processed schema:
 
   `time, value, value_scaled, is_anomaly, hour_of_day, day_of_week, is_weekend, split, case_study`.
 
-* Recreate split dataframes from this final `df` using `split` masks, so that `train_df`, `validation_df`, `test_df` all contain `value_scaled` and the final column order.
+### 4.3 CPU outputs
 
-### 3.3 NYC taxi outputs
+Saved under `data/processed/cpu_utilisation/`:
 
-Saved under `data/processed/nyc_taxi/`:
+* `cpu_utilisation_full.csv` – full processed CPU utilisation dataset.
+* `cpu_utilisation_train.csv` – `split == "train"`.
+* `cpu_utilisation_validation.csv` – `split == "validation"`.
+* `cpu_utilisation_test.csv` – `split == "test"`.
 
-* `nyc_taxi_full.csv` – full processed NYC taxi dataset with all rows and columns.
-* `nyc_taxi_train.csv` – `split == "train"`; used for model fitting and scaling.
-* `nyc_taxi_val.csv` – `split == "validation"`; used for tuning and early comparison of methods.
-* `nyc_taxi_test.csv` – `split == "test"`; held-out set for final evaluation.
-
-All three splits are derived directly from `nyc_taxi_full.csv`, ensuring a reproducible link between preprocessing and experiments.
-
----
-
-## 4. Case Study C – CPU utilisation (ASG misconfiguration, NAB)
-
-> **Status:** Preprocessing **planned, not yet implemented**. Data overview and notes already exist.
-
-Planned preprocessing (to be implemented following the same global rules):
-
-* Core schema and time features identical to Ambient/NYC taxi.
-* Convert timestamps to `datetime`, retain 5-minute sampling.
-* StandardScaler fitted on CPU training split only; store `cpu_scaler_params`.
-* Splits designed around regime structure (moderate → high unstable → low) so that training focuses on early regimes and evaluation covers transitions and anomaly windows.
-* Target outputs:
-
-  * `data/processed/cpu/cpu_full.csv`
-  * `cpu_train.csv`, `cpu_val.csv`, `cpu_test.csv`.
-
-(This section will be updated once CPU preprocessing is implemented.)
+All split-specific files are derived directly from the full processed file.
 
 ---
 
@@ -428,60 +479,50 @@ Planned preprocessing:
 Planned outputs:
 
 * `data/processed/aiops_kpi/aiops_kpi_full.csv`
-* `aiops_kpi_train.csv`, `aiops_kpi_val.csv`, `aiops_kpi_test.csv`.
+* `aiops_kpi_train.csv`, `aiops_kpi_validation.csv`, `aiops_kpi_test.csv`
 
 (This section will be updated once preprocessing is actually run.)
 
 ---
 
-## 6. Cross-case story so far – linking Ambient and NYC taxi
+## 6. Cross-case story so far – linking the four case studies
 
-This section captures the **ongoing narrative** of the research as each case study moves through preprocessing.
+This section captures the ongoing narrative of the research as each case study moves through preprocessing.
 
 ### 6.1 Ambient temperature (Case A) – controlled environment with sensor issues
 
-* Represents a **managed physical environment** (building/room) where temperature must stay within safe bounds.
+* Represents a managed physical environment (building/room) where temperature must stay within safe bounds.
 * Anomalies capture:
 
   * a short warm spike, and
   * a longer shift to a different baseline (regime change).
-* Preprocessing decisions (Celsius conversion, anomaly-based split boundaries, standardised values) emphasise:
-
-  * interpretability in a South African context, and
-  * clear separation between pre-failure normal behaviour and later drift/anomalies.
-* This dataset serves as a compact demonstration of **drift and rare sensor-type failures** in a relatively simple univariate series.
+* Preprocessing decisions (Celsius conversion, anomaly-based split boundaries, standardised values) emphasise interpretability and clear chronological separation between normal behaviour and later drift/anomalies.
 
 ### 6.2 NYC taxi (Case B) – operational demand with strong seasonality
 
-* Represents a **dynamic service-demand signal** with clear daily/weekly structure.
-* Anomalies are linked to specific event periods (holidays, storms, etc.) and sit on top of strong recurring patterns.
-* Calendar-based splits (train on July–October, validate on November–December, test on January) align with:
+* Represents a dynamic service-demand signal with clear daily/weekly structure.
+* Anomalies align with event periods (holidays, storms, disruptions) on top of a strongly recurring baseline.
+* Calendar-based splits align with an intuitive operational interpretation while preserving strict chronology.
 
-  * operator intuition (thinking in months), and
-  * the goal of testing models on **later months with different event patterns and seasonal phases**.
-* Standardised `value_scaled` allows comparison of demand behaviour across splits and eventually across case studies, without raw units dominating optimisation.
+### 6.3 CPU utilisation (Case C) – infrastructure performance under misconfiguration
 
-### 6.3 How A and B jointly support the research aim
+* Represents infrastructure performance where sustained regime changes and tail-end instability can occur under misconfiguration.
+* Labelled anomalies occur near the end of the series, motivating a regime-informed split design.
+* A baseline reference window and threshold-based regime detection are used to set defensible boundary timestamps.
+* A minimum test-duration constraint is required to prevent the end-of-series evaluation window from collapsing.
 
-Together, Ambient A and NYC taxi B already provide:
+### 6.4 How A, B, and C jointly support the research aim
 
-* Two distinct types of **business-relevant time series**:
+Together, Ambient (A), NYC taxi (B), and CPU utilisation (C) provide:
 
-  * environmental control (ambient temperature), and
-  * urban mobility demand (NYC taxi).
-* Contrasting anomaly structures:
+* distinct business-relevant signals spanning physical environment control, service demand, and infrastructure performance,
+* contrasting anomaly structures (regime changes, event-driven anomalies, and misconfiguration-driven instability), and
+* a shared preprocessing pipeline (common schema, chronological splitting, train-only scaling, and saved full-plus-split artefacts).
 
-  * regime shift vs. isolated events on a strongly seasonal baseline.
-* A shared, fully implemented preprocessing pipeline:
+As the AIOps KPI (D) is brought into the same pipeline, the portfolio will cover:
 
-  * identical core schema,
-  * chronological splits designed with anomalies and drift in mind,
-  * `value_scaled` based on train-only statistics,
-  * clear saved artefacts (full + splits) ready for baselines and diffusion models.
+* dense incident windows,
+* higher anomaly rates relative to NAB cases,
+* and concept drift patterns under operational disturbance,
 
-As CPU (Case C) and AIOps KPI (Case D) are brought into the same pipeline, this narrative will extend to:
-
-* infrastructure performance under misconfiguration (CPU), and
-* service-level KPIs with dense incident windows (AIOps),
-
-creating a portfolio of four case studies that collectively test diffusion-based anomaly detection across different **operational domains, sampling resolutions, and drift patterns**, all under a consistent preprocessing and evaluation framework.
+supporting comparative evaluation of diffusion-based anomaly detection across different domains, sampling resolutions, and drift structures under a consistent preprocessing framework.
