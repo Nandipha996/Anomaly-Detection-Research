@@ -12,7 +12,7 @@ Implementation status per case:
 * **Case A (Ambient)** – preprocessing **implemented and saved**.
 * **Case B (NYC taxi)** – preprocessing **implemented and saved**.
 * **Case C (CPU)** – preprocessing **implemented and saved**.
-* **Case D (AIOps KPI)** – preprocessing **planned, not yet implemented**.
+* **Case D (AIOps KPI)** – preprocessing **implemented and saved**.
 
 ---
 
@@ -63,10 +63,6 @@ Datasets may have additional analysis-only columns later (e.g. incident flags), 
 
   * **Missing values check** (per-column counts and percentages).
   * **Duplicate rows check** (exact duplicates across all columns).
-* For Ambient and NYC taxi the outcome is:
-
-  * 0 missing values in any core column.
-  * 0 duplicate rows.
 
 ### 1.4 Scaling (global rule)
 
@@ -77,7 +73,7 @@ Datasets may have additional analysis-only columns later (e.g. incident flags), 
   * Ambient: `ambient_scaler_params = {"mean": ..., "std": ...}`
   * NYC taxi: `nyc_taxi_scaler_params = {"mean": ..., "std": ...}`
   * CPU: `cpu_scaler_params = {"mean": ..., "std": ...}`
-  * AIOps KPI: `aiops_kpi_scaler_params = {"mean": ..., "std": ...}` (to be created when preprocessing is implemented)
+  * AIOps KPI: `aiops_kpi_scaler_parameters = {"mean": ..., "std": ...}`
 * The fitted scaler is applied to the **full processed dataframe** (train, validation, test) to produce `value_scaled`.
 
 This gives:
@@ -116,6 +112,11 @@ Split validity is documented using outputs already produced by the notebooks:
 * an anomaly placement preview confirming where labelled anomalies fall.
 
 Most datasets naturally satisfy validity expectations under their split rules (Ambient anomaly-based boundaries; NYC taxi calendar-month boundaries). The CPU case requires an additional dataset-specific constraint to prevent the evaluation windows from collapsing due to the short end-of-series regime tail.
+
+**Case D (AIOps KPI) adds one additional split-design convention:**
+
+* when a dataset contains a clearly defined **high-anomaly incident regime**, the split design should prefer placing that incident regime inside the **test** split to support final evaluation under realistic stress conditions.
+* where multiple candidate training cutoffs are plausible, a simple **train-end sensitivity check** (rows and anomaly proportions per split) is used to select a defensible balance between training size and validation usefulness.
 
 ### 1.6 Outputs and directory structure
 
@@ -464,24 +465,175 @@ All split-specific files are derived directly from the full processed file.
 
 ## 5. Case Study D – AIOps KPI (KPI ID da403e4e3f87c9e0)
 
-> **Status:** Preprocessing **planned, not yet implemented**. Data overview and modelling notes exist.
+> **Status:** Preprocessing **implemented and saved**.
 
-Planned preprocessing:
+### 5.1 Raw data summary
 
-* Convert Unix `time` to `datetime`, preserve 1-minute resolution with occasional gaps.
-* Apply the shared core schema and time features.
-* Fit StandardScaler on training split; store `aiops_kpi_scaler_params`.
-* Splits designed to:
+* Source file: stacked AIOps training file (`train.csv`) containing many KPIs identified by `KPI ID`.
 
-  * train on earlier lower-anomaly periods,
-  * test across the high-anomaly incident window and post-incident period.
+* Case D is produced by filtering the stacked file to a single univariate KPI and treating it as a standalone operational time series.
 
-Planned outputs:
+* Initial raw fields (before standardisation):
 
-* `data/processed/aiops_kpi/aiops_kpi_full.csv`
-* `aiops_kpi_train.csv`, `aiops_kpi_validation.csv`, `aiops_kpi_test.csv`
+  * Unix timestamp (`time`, seconds)
+  * KPI value (`value`, unitless)
+  * binary label (`label`, 0/1)
+  * KPI identifier (`KPI ID`)
 
-(This section will be updated once preprocessing is actually run.)
+* Interpretation: anonymised 1-minute monitoring signal (generic service/system KPI) over multiple months.
+
+### 5.2 KPI selection rationale (evidence from exploratory filtering)
+
+The KPI series `da403e4e3f87c9e0` was selected from the stacked AIOps training file based on quantitative screening and regime-structure suitability.
+
+* A KPI-level screening table was computed with:
+
+  * total number of points (`total_points`),
+  * total anomaly-labelled points (`anomaly_points`), and
+  * anomaly ratio (`anomaly_points / total_points`).
+
+* Candidate KPIs were shortlisted to ensure:
+
+  * sufficient series length for train/validation/test splitting,
+  * a meaningful but still imbalanced anomaly proportion, and
+  * visible variation in anomaly density across time (supporting drift/incident analysis).
+
+* The selected KPI has:
+
+  * `total_points = 129,035`
+  * `anomaly_points = 7,666`
+  * `anomaly_ratio ≈ 0.059410` (≈ 5.94%)
+
+* Segment-level anomaly ratios (early/middle/late thirds) indicate non-stationary anomaly structure:
+
+  * early third anomaly ratio ≈ 0.008835
+  * middle third anomaly ratio ≈ 0.101530
+  * late third anomaly ratio ≈ 0.067865
+
+This combination supports Case D as a high-frequency operational series with an identifiable high-anomaly regime and evolving anomaly density.
+
+### 5.3 Implemented preprocessing steps (AIOps KPI D)
+
+**Step 1 – Load dataset and attach anomaly labels**
+
+* Load the stacked AIOps training file and filter to KPI ID `da403e4e3f87c9e0`.
+* Convert Unix timestamps (seconds) to `datetime64[ns]` and sort chronologically.
+* Standardise label naming to `is_anomaly` (0 = normal, 1 = anomaly).
+* Remove analysis-only identifiers from the final processed data:
+
+  * drop the original Unix timestamp field once converted,
+  * drop `KPI ID` after filtering.
+
+**Step 2 – Standardise core columns (`time`, `value`, `is_anomaly`, `case_study`)**
+
+* Rename/align columns to the common schema:
+
+  * `time` (datetime)
+  * `value` (unitless KPI value)
+  * `is_anomaly` (0/1)
+  * `case_study = "aiops_kpi"`
+
+**Step 3 – Missing values and duplicate-rows sanity check**
+
+* Missing-values summary table confirms no missing values in the standardised columns.
+* Duplicate-rows summary table confirms no exact duplicate rows.
+
+**Step 4 – Time-based features**
+
+* Add:
+
+  * `hour_of_day = df["time"].dt.hour`
+  * `day_of_week = df["time"].dt.weekday`
+  * `is_weekend = df["day_of_week"].isin([5, 6]).astype(int)`
+
+**Step 5 – Inspect anomalies, dataset span, and sampling regularity**
+
+* An anomaly summary table lists anomaly timestamps and values.
+* Time span summary reports dataset start/end times, row count, and total duration.
+* A dominant interval check confirms 1-minute sampling as the most common interval.
+* Occasional larger time gaps are identified as missing periods in the time axis.
+
+  * Gaps are not filled during preprocessing.
+  * Contiguity is enforced later during window creation by excluding windows that cross non-contiguous time intervals.
+
+**Step 6 – Define chronological boundaries using incident regime structure (Case D design)**
+
+The Case D split design is anchored on a distinct high-anomaly incident regime, with the evaluation goal of placing that incident regime inside the test split.
+
+* Daily anomaly ratios and top anomaly days are used to locate the incident period.
+* A short train-end sensitivity check compares candidate training cutoffs to preserve a meaningful validation window while keeping the incident regime in test.
+
+Final chosen boundaries (explicit end-of-day cutoffs):
+
+* Training ends: **2017-06-15 23:59:00**
+* Validation ends: **2017-06-27 23:59:00**
+* Test starts: **2017-06-28 00:00:00**
+
+Resulting split segments:
+
+* Train: 2017-04-30 16:00:00 → 2017-06-15 23:59:00
+
+  * Rows: 63,999
+  * Anomalies: 563
+  * Proportion: 49.598%
+
+* Validation: 2017-06-16 00:00:00 → 2017-06-27 23:59:00
+
+  * Rows: 17,268
+  * Anomalies: 97
+  * Proportion: 13.382%
+
+* Test: 2017-06-28 00:00:00 → 2017-07-31 04:29:00
+
+  * Rows: 47,768
+  * Anomalies: 7,006
+  * Proportion: 37.019%
+
+**Step 7 – Assign split labels and summarise segments**
+
+* Assign `df["split"]` using the boundary timestamps.
+* Produce a split summary table reporting start/end times, rows, anomaly counts, and proportions.
+
+**Step 8 – Create split-specific dataframes and integrity checks**
+
+* Create `train_df`, `validation_df`, `test_df` via boolean masks on `df["split"]` and `.copy()`.
+* Integrity checks confirm:
+
+  * split sizes add up to the full dataframe,
+  * each split is time-sorted,
+  * train ends before validation starts,
+  * validation ends before test starts.
+
+**Step 9 – Standardise AIOps KPI values**
+
+* Fit `StandardScaler` on `train_df[["value"]]` only.
+
+* Record scaler parameters:
+
+  * `aiops_kpi_scaler_parameters = {"mean": 2.6202494, "std": 1.0365871}`
+
+* Apply the fitted scaler to the full dataframe to create `value_scaled`.
+
+* A training-only check confirms mean ≈ 0 and std ≈ 1 on the training split.
+
+* Split-specific dataframes are recreated after scaling so that all splits include `value_scaled`.
+
+**Final column order**
+
+* AIOps KPI processed schema:
+
+  `time, value, value_scaled, is_anomaly, hour_of_day, day_of_week, is_weekend, split, case_study`.
+
+### 5.4 AIOps KPI outputs
+
+Saved under `data/processed/aiops_kpi/`:
+
+* `aiops_kpi_full.csv` – full processed AIOps KPI dataset.
+* `aiops_kpi_train.csv` – `split == "train"`.
+* `aiops_kpi_validation.csv` – `split == "validation"`.
+* `aiops_kpi_test.csv` – `split == "test"`.
+
+All split-specific files are derived directly from the full processed file.
 
 ---
 
@@ -511,18 +663,34 @@ This section captures the ongoing narrative of the research as each case study m
 * A baseline reference window and threshold-based regime detection are used to set defensible boundary timestamps.
 * A minimum test-duration constraint is required to prevent the end-of-series evaluation window from collapsing.
 
-### 6.4 How A, B, and C jointly support the research aim
+### 6.4 How A, B, C, and D jointly support the research aim
 
-Together, Ambient (A), NYC taxi (B), and CPU utilisation (C) provide:
+Together, the four case studies provide:
 
-* distinct business-relevant signals spanning physical environment control, service demand, and infrastructure performance,
-* contrasting anomaly structures (regime changes, event-driven anomalies, and misconfiguration-driven instability), and
+* distinct business-relevant signals spanning physical environment control, service demand, infrastructure performance, and high-frequency operational monitoring,
+* contrasting anomaly structures (regime changes, event-driven anomalies, misconfiguration-driven instability, and incident-heavy regimes), and
 * a shared preprocessing pipeline (common schema, chronological splitting, train-only scaling, and saved full-plus-split artefacts).
 
-As the AIOps KPI (D) is brought into the same pipeline, the portfolio will cover:
+The AIOps KPI case adds:
 
-* dense incident windows,
-* higher anomaly rates relative to NAB cases,
-* and concept drift patterns under operational disturbance,
+* a dense incident regime with a substantially higher anomaly rate than the NAB cases,
+* a clear need for incident-aware split design (incident placed in test for final evaluation), and
+* concept drift evidence via changing anomaly density across early/middle/late segments,
 
 supporting comparative evaluation of diffusion-based anomaly detection across different domains, sampling resolutions, and drift structures under a consistent preprocessing framework.
+
+---
+
+## 7. Real vs synthetic distinction
+
+This charter describes **preprocessing of real data only**, including:
+
+* schema alignment,
+* timestamp parsing and sorting,
+* unit conversions where relevant,
+* chronological splitting,
+* train-only scaling,
+* basic time-derived feature engineering, and
+* saving canonical processed artefacts.
+
+Any **synthetic-on-real anomaly injection** (if used later in the study) will be performed on **copies of processed datasets** after preprocessing, and will not modify the canonical preprocessing notebooks or the saved processed artefacts described in this charter.
