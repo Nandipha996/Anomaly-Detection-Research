@@ -1,12 +1,12 @@
-# Modelling and Evaluation Charter – Diffusion-Based Anomaly Detection in Dynamic Business Time-Series (Next Phase)
+# Modelling and Evaluation Charter – Diffusion-Based Anomaly Detection in Dynamic Business Time-Series
 
 This charter defines the **modelling**, **evaluation**, and **reporting** standards for the next research phase, following completion of preprocessing for Case Studies A–D.
 
 It is designed to be consistent with:
 
-* the **Application Proposal – Nandipha Mehlo** (ground-truth research framing: diffusion focus, efficiency constraints, drift-aware evaluation),
-* the **Preprocessing Charter – Dynamic Business Time-Series Case Studies** (ground-truth data preparation rules and split logic), and
-* the **Processed Data Inventory – Cases A–D** (canonical processed artefacts and known per-case characteristics).
+* the **Application Proposal – Nandipha Mehlo** (diffusion focus, efficiency constraints, drift-aware evaluation, hybrid quantitative–qualitative design),
+* the **Preprocessing Charter – Dynamic Business Time-Series Case Studies** (data preparation rules and split logic), and
+* the **Processed Data Inventory – Cases A–D** (canonical processed artefacts and per-case characteristics).
 
 The charter is intentionally **method-first**: it specifies a reproducible evaluation harness and a staged modelling plan so that comparisons between diffusion-based methods and baselines are fair across datasets with very different sampling resolutions and anomaly rates.
 
@@ -14,17 +14,19 @@ The charter is intentionally **method-first**: it specifies a reproducible evalu
 
 ## 0) Confirmed design decisions (locked for this phase)
 
-These decisions have been confirmed for the modelling and evaluation phase. They replace all prior placeholders.
+These decisions are now fixed for the modelling and evaluation phase and replace all earlier placeholders.
 
-1. **Primary objective (headline evaluation): event / window-level detection**
+1. **Primary objective (headline evaluation): event-level detection**
 
-   * Event-level detection is the primary objective.
-   * Point-wise scores and metrics are treated as secondary diagnostics.
+   * The **headline question** is whether a model correctly detects **anomaly events** (incidents, regimes, episodes).
+   * **Event-level metrics** (event precision, event recall, event F1, and optionally detection delay) are the **primary evaluation signal**.
+   * Point-wise and window-wise scores/metrics are used as **supporting diagnostics**.
 
 2. **Primary representation: sequence windows**
 
    * Sequence windows are the default representation for modelling and scoring.
-   * Tabular window summaries may be used only for selected baselines as an optional extension.
+   * Each window yields an anomaly score associated with a **window end time**.
+   * Tabular window summaries may be used for selected baselines as an optional extension, but they must still produce scores that can be mapped back to timestamps and events.
 
 3. **Diffusion formulation: reconstruction-based diffusion (in-scope)**
 
@@ -34,7 +36,7 @@ These decisions have been confirmed for the modelling and evaluation phase. They
 4. **Synthetic experiments: secondary experiments after real-data results**
 
    * Main evidence comes from real labelled anomalies (NAB + AIOps KPI labels).
-   * Synthetic-on-real anomaly injection is run after real-data experiments to stress-test and interpret behaviour, especially where labels are sparse.
+   * Synthetic-on-real anomaly injection is run **after** real-data experiments to stress-test and interpret behaviour, especially where labels are sparse.
 
 ---
 
@@ -46,7 +48,7 @@ The modelling plan must remain feasible under limited compute (personal CPU reso
 
 * Prefer **lightweight baselines** as anchors (simple heuristics + classical baselines).
 * Use **small, well-justified hyperparameter grids**.
-* Use **early stopping** and **reproducible seeds**.
+* Use **early stopping** and **reproducible seeds** where applicable.
 * Store intermediate artefacts so that experiments can be resumed without re-running everything.
 
 ### 1.2 Drift-aware evaluation as a first-class requirement
@@ -54,12 +56,12 @@ The modelling plan must remain feasible under limited compute (personal CPU reso
 The proposal motivates evaluation under **dynamic business time-series** conditions (concept drift / regime shifts). Therefore:
 
 * Do not report only one aggregate metric.
-* Report performance **by time segment** (train/validation/test and within-test breakdowns where relevant).
-* Treat Case D (AIOps KPI) as an explicit stress test due to its dense incident regime and high anomaly concentration.
+* Where feasible, report performance **by time segment** (e.g. early vs late, pre-incident vs incident vs post-incident), not just over the full test period.
+* Treat Case D (AIOps KPI) as an explicit **stress test** due to its dense incident regime and high anomaly concentration.
 
 ### 1.3 Separation of concerns: real preprocessing vs synthetic modifications
 
-* Preprocessing notebooks produce canonical processed datasets (see Processed Data Inventory).
+* Preprocessing notebooks produce **canonical processed datasets** (see Preprocessing Charter and Processed Data Inventory).
 * Any synthetic anomaly injection or synthetic-on-real augmentation must occur **later**, on **copies** of processed data, and must not overwrite canonical artefacts.
 
 ---
@@ -70,10 +72,10 @@ The proposal motivates evaluation under **dynamic business time-series** conditi
 
 Models must be trained and evaluated only on the canonical processed artefacts:
 
-* Case A: `data/processed/ambient/ambient_processed_full.csv` (+ splits)
-* Case B: `data/processed/nyc_taxi/nyc_taxi_full.csv` (+ splits)
-* Case C: `data/processed/cpu_utilisation/cpu_utilisation_full.csv` (+ splits)
-* Case D: `data/processed/aiops_kpi/aiops_kpi_full.csv` (+ splits)
+* Case A: `data/processed/ambient/ambient_processed_full.csv` (+ splits).
+* Case B: `data/processed/nyc_taxi/nyc_taxi_full.csv` (+ splits).
+* Case C: `data/processed/cpu_utilisation/cpu_utilisation_full.csv` (+ splits).
+* Case D: `data/processed/aiops_kpi/aiops_kpi_full.csv` (+ splits).
 
 ### 2.2 Standard columns available
 
@@ -84,16 +86,16 @@ All models may assume the following fields exist and have consistent meaning:
 
 ### 2.3 Case-specific data realities that must be respected
 
-* Case A: extremely sparse anomalies (2 labels).
-* Case B: sparse anomalies (5 labels) with strong seasonality.
-* Case C: extremely sparse anomalies (2 labels) and regime changes near series end.
+* Case A: extremely sparse anomalies (2 events).
+* Case B: sparse anomalies (5 events) with strong seasonality.
+* Case C: extremely sparse anomalies (2 events) and regime changes near series end.
 * Case D: higher anomaly density overall and a concentrated incident regime; 1-minute sampling with occasional gaps.
 
 These differences require:
 
 * careful choice of metrics (avoid misleading accuracy),
 * threshold calibration strategies that do not leak test information,
-* evaluation summaries that explicitly report class imbalance.
+* evaluation summaries that explicitly report **class imbalance** and **number of labelled events**.
 
 ---
 
@@ -104,7 +106,7 @@ These differences require:
 Regardless of model family, every method must output, for each timestamp in validation and test:
 
 * `anomaly_score` (higher = more anomalous), and
-* `pred_is_anomaly` after applying a threshold chosen using validation only.
+* `pred_is_anomaly` after applying a chosen threshold.
 
 A standard per-split prediction file is required:
 
@@ -115,20 +117,30 @@ Minimum columns:
 
 * `time`, `anomaly_score`, `pred_is_anomaly`, `is_anomaly`, `split`, `case_study`
 
-### 3.2 Thresholding rule (to avoid leakage)
+**Note:** event-level metrics will be computed **from these point-level predictions**, using consistent event definitions (Section 7.1).
 
-Threshold selection must use **validation only**.
+### 3.2 Thresholding rule (to avoid leakage and align with event-level objective)
 
-Supported threshold selection strategies (choose at least one and apply consistently):
+Threshold selection must use **validation only** and must align with the **event-level objective** as far as possible.
 
-1. **Quantile-based threshold** on validation scores (e.g., top q% flagged).
-2. **Metric-optimised threshold**: choose threshold that maximises a validation metric aligned to `<primary_objective>`.
+Supported threshold selection strategies:
+
+1. **Primary strategy: event-F1 on validation**
+
+   * Convert validation labels into **true events** (contiguous runs of `is_anomaly == 1`).
+   * For a grid of candidate thresholds, compute **event precision**, **event recall**, and **event F1**.
+   * Choose the threshold that **maximises event F1** (with event recall as a tie-breaker).
+
+2. **Fallback strategy for extremely sparse events**
+
+   * In cases with too few events for a meaningful event-F1 curve (e.g. Case A and possibly Case C), use **point-wise F1** on validation as a fallback.
+   * Document explicitly when the fallback is used.
 
 For each trained model run, the chosen threshold must be saved:
 
 * `threshold_value`
-* `threshold_strategy`
-* validation metric at the chosen threshold
+* `threshold_strategy` (e.g. `"event_f1"`, `"point_f1_fallback"`, `"fixed_quantile_q=0.995"`)
+* the **validation metric(s)** at the chosen threshold (event-F1 plus supporting metrics).
 
 ---
 
@@ -140,13 +152,13 @@ Because diffusion models and LSTM autoencoders are sequence-based, and classical
 
 **Definition**
 
-* For each time t, form a window of length `L` covering `[t-L+1, ..., t]`.
-* Input features for the window are typically `value_scaled` (and optionally time features).
+* For each time step (t), form a window of length (L) covering ([t-L+1, \dots, t]).
+* Input features for the window are typically `value_scaled` (with optional time features).
 
 **Contiguity enforcement (critical for Case D gaps)**
 
-* A window is valid only if the time differences inside the window match the dominant sampling interval.
-* Windows that cross a gap are excluded from training and scoring.
+* A window is valid only if the time differences inside the window **match the dominant sampling interval** for that case.
+* Windows that cross a gap are **excluded** from training and scoring.
 
 **Candidate window lengths (to be validated, not assumed)**
 
@@ -160,55 +172,58 @@ Window lengths must be justified per sampling resolution. Candidate sets:
 Selection rule:
 
 * Choose `L` using validation performance and compute feasibility.
-* Record a short sensitivity table: `L`, train runtime, validation metric.
+* Record a short sensitivity table: `L`, train runtime, event-level validation metrics.
 
 ### 4.2 Mode B: Tabular features (recommended for Isolation Forest and OC-SVM)
 
 Two defensible options exist:
 
 1. **Flattened window**: use the last `L` values (and optionally time features) as features.
-2. **Summary window features**: mean, std, min, max, slope, rolling quantiles, and seasonal indicators.
+2. **Summary window features**: e.g. mean, std, min, max, simple slope, and a small set of seasonal indicators.
 
 Preference under compute limits:
 
 * summary window features reduce dimensionality and can be more stable.
+* feature sets should be kept **as consistent as possible** across datasets, while respecting different sampling resolutions.
 
-Feature sets must be kept consistent across datasets where possible.
+Regardless of representation, models must still produce **timestamp-indexed anomaly scores** for event-level evaluation.
 
 ---
 
 ## 5) Model families to be evaluated (proposal-aligned)
 
-The modelling phase is organised into three tiers to match the proposal’s baseline requirements and diffusion focus.
+The modelling phase is organised into tiers to match the proposal’s baseline requirements and diffusion focus.
 
 ### 5.1 Tier 0: Simple heuristic baselines (required)
 
-Purpose:
+**Purpose**
 
 * Provide transparent anchors that establish whether sophisticated methods are meaningfully improving on simple rules.
 
-Candidate heuristics (apply using validation-only thresholding):
+**Candidate heuristics** (validation-based thresholding, evaluated at event level):
 
 1. **Static z-score threshold** on `value_scaled`.
-2. **Rolling z-score** (rolling mean/std on train; apply to val/test).
+2. **Rolling z-score** (rolling mean/std computed on train; applied to val/test).
 3. **Rolling median + MAD** (robust alternative).
 
-Case B (NYC taxi) may require a seasonal-aware heuristic:
-
-* a **seasonal baseline** (e.g., compare to same time-of-week historical window) can be considered if already feasible; otherwise keep the heuristics above and document the limitation.
+Case B (NYC taxi) may also consider a **seasonal heuristic** (e.g. comparing current value to expected seasonal baseline for that time-of-week). If that is not implemented, the limitation should be documented.
 
 ### 5.2 Tier 1: Classical baseline models (required)
 
-These are explicitly listed in the proposal and must be implemented:
+As stated in the proposal:
 
-* **Isolation Forest (IF)**
-* **One-Class SVM (OC-SVM)**
+* **Isolation Forest (IF)`**
+* **One-Class SVM (OC-SVM)`**
 
 Implementation guidance:
 
-* Train using the training split only.
+* Train using the **training split only**.
 * Use window-based tabular features (Section 4.2).
 * Produce anomaly scores on validation and test.
+* Evaluate using:
+
+  * point-wise metrics (Precision, Recall, F1, AUROC, PR-AUC), and
+  * event-level metrics (Section 7.1), with event-F1 as the primary metric where possible.
 
 ### 5.3 Tier 2: Deep baseline (required)
 
@@ -218,26 +233,22 @@ Implementation guidance:
 
 * Use sliding windows (Section 4.1).
 * Train to reconstruct the input sequence.
-* Anomaly score can be defined as reconstruction error (e.g., MSE) aggregated over the window.
+* Define anomaly score as a reconstruction-error measure aggregated over the window (e.g. mean squared error).
+* Evaluate as for Tier 1, with the same thresholding protocol.
 
 ### 5.4 Tier 3: Diffusion-based anomaly detection (primary research contribution)
 
 This tier operationalises the proposal’s core direction: evaluating diffusion models for anomaly detection under feasibility constraints.
 
-Two diffusion-compatible scoring approaches are valid; selection depends on `<diffusion_formulation>`:
+Within the reconstruction-based scope:
 
-1. **Reconstruction-based diffusion**
-
-   * Train diffusion to model normal windows.
-   * Score anomalies by reconstruction error or denoising difficulty.
-
-2. **Likelihood/score-based diffusion**
-
-   * Use model likelihood proxies or score magnitudes as anomaly scores.
+* Train diffusion models on **normal windows** from the training split.
+* Use reconstruction error / denoising difficulty as the anomaly score at each window end time.
+* Evaluate with exactly the same event-aligned metrics and thresholding strategy used for Tier 1–2, to allow fair comparison.
 
 Fairness requirement:
 
-* Diffusion models must be trained on the same training data and windowing rules as LSTM AE.
+* Diffusion models must be trained on the **same training data and window rules** as LSTM AE.
 * Hyperparameter search must be constrained and documented.
 
 ---
@@ -246,9 +257,9 @@ Fairness requirement:
 
 ### 6.1 Data usage rules
 
-* Train: training split only.
-* Tune/Select: validation split only.
-* Final report: test split only.
+* Train: **training** split only.
+* Tune / select thresholds and hyperparameters: **validation** split only.
+* Final report: **test** split only.
 
 ### 6.2 Hyperparameter tuning (minimal but principled)
 
@@ -256,16 +267,16 @@ A small grid is required for each model family.
 
 Example tuning knobs (to be finalised per implementation):
 
-* IF: number of estimators, contamination proxy (used only for score scaling, not for thresholding).
+* IF: number of estimators, max samples, contamination proxy (for score scaling only).
 * OC-SVM: kernel, nu, gamma.
-* LSTM AE: hidden size, layers, dropout, learning rate, epochs.
-* Diffusion: number of steps, model width, learning rate, epochs.
+* LSTM AE: hidden size, number of layers, dropout, learning rate, epochs.
+* Diffusion: number of diffusion steps, model width, learning rate, epochs.
 
 Tuning outputs must include:
 
 * chosen hyperparameters,
 * runtime summary,
-* validation metric summary.
+* validation metrics (including **event-F1** where possible).
 
 ### 6.3 Reproducibility
 
@@ -274,49 +285,75 @@ For every run record:
 * random seeds,
 * library versions,
 * hardware summary (CPU/GPU),
-* configuration file or dictionary.
+* configuration file or dictionary with all choices.
 
 ---
 
 ## 7) Evaluation design
 
-### 7.1 Core metrics (point-wise)
+### 7.1 Event-level evaluation (primary)
 
-Because class imbalance is severe in multiple cases, the following must be reported:
+**Event definition**
 
-* Precision, Recall, F1
-* PR-AUC (recommended under imbalance)
-* ROC-AUC (reported but not treated as primary under severe imbalance)
+* A **true event** is a contiguous run of `is_anomaly == 1` in the ground-truth labels.
+* A **predicted event** is a contiguous run of `pred_is_anomaly == 1` at a given threshold.
 
-### 7.2 Event-aware evaluation (recommended)
+**Event matching**
 
-If `<primary_objective>` includes incident detection, event-level evaluation should be added.
+* A true event is considered **detected** if at least one predicted event overlaps it in time.
+* A predicted event is considered **false** if it overlaps no true event.
 
-A defensible approach:
+**Primary event metrics**
 
-* define anomaly events as contiguous runs of `is_anomaly == 1`.
-* evaluate whether predicted anomalies overlap each true event (event recall), and how many predicted events are false (event precision).
+For each model and case:
 
-If an explicit “detection delay” metric is desired, define it clearly (minutes/hours after event start) and report it.
+* **Event recall**: proportion of true events that were detected at least once.
+* **Event precision**: proportion of predicted events that match at least one true event.
+* **Event F1**: harmonic mean of event precision and event recall.
+
+Optional but desirable:
+
+* **Detection delay**: time difference between event start and first correct prediction, summarised across events (e.g. median delay).
+
+These event-level metrics are the **headline results** for the study, especially in Case B and Case D where events are more numerous. For cases with only 2 events (A and C), metrics are still computed but interpreted cautiously and supported with qualitative plots.
+
+### 7.2 Point-wise metrics (supporting diagnostics)
+
+To characterise discrimination at the point level, and to remain aligned with the research proposal:
+
+* **Precision, Recall, and point-wise F1** at the chosen threshold,
+* **AUROC (Area Under the ROC Curve)**,
+* **PR-AUC (Area Under the Precision–Recall Curve)**.
+
+Interpretation guidance:
+
+* Under heavy imbalance (all four cases, especially A, C, and D), **PR-AUC** is usually more informative than AUROC, but AUROC remains part of the reported metric set because it is explicitly listed in the proposal.
+* If AUROC is high but event-level recall is poor, the discussion must highlight this mismatch.
 
 ### 7.3 Time-segment evaluation (drift-aware)
 
-In addition to aggregate metrics on the full test split, report:
+In addition to aggregate metrics over the full test split, report:
 
-* metrics by calendar segment where meaningful (e.g., monthly for Case B),
-* metrics by regime segments (Case C boundary regimes; Case D incident vs post-incident windows),
-* score distribution plots by split (train/val/test) to visualise drift.
+* Metrics by **calendar segment** where meaningful (e.g. monthly for Case B).
+
+* Metrics by **regime segments** where regimes have been identified in preprocessing:
+
+  * Case C: early baseline vs unstable vs low-CPU regimes.
+  * Case D: pre-incident vs incident vs post-incident.
+
+* Score distribution plots (train/val/test) to visualise drift and calibration shifts.
 
 ### 7.4 Case-specific evaluation cautions
 
-* Cases A and C have only 2 labelled anomalies. Point-wise metrics can become unstable.
+* **Cases A and C**: only 2 labelled events each.
 
-  * Report counts and qualitative plots alongside metrics.
-  * Treat results as illustrative evidence of feasibility and regime sensitivity rather than purely statistical superiority.
+  * Event metrics are based on very few events and are therefore unstable.
+  * Results must be supported by plots and narrative descriptions rather than treated as purely statistical evidence.
 
-* Case D has a dense incident regime with many anomalies concentrated in test.
+* **Case D**: dense incident regime with many anomalies concentrated in test.
 
-  * PR-AUC and event-based metrics become particularly informative.
+  * Event-level metrics and PR-AUC are particularly informative here.
+  * The incident regime should receive a dedicated sub-section in the results and discussion chapters.
 
 ---
 
@@ -326,57 +363,59 @@ In addition to aggregate metrics on the full test split, report:
 
 Save the following:
 
-1. `config.json` (or `.yaml`): hyperparameters + seeds + window length + feature set.
-2. `threshold.json`: threshold strategy + value + validation metric.
+1. `config.json` (or `.yaml`): hyperparameters, seeds, window length, feature set.
+
+2. `threshold.json`: threshold strategy, value, and validation metrics (including event-F1 or fallback metric).
+
 3. Prediction files:
 
    * `<case>_<model>_val_predictions.csv`
    * `<case>_<model>_test_predictions.csv`
+
 4. Metrics tables:
 
-   * `<case>_<model>_val_metrics.csv`
-   * `<case>_<model>_test_metrics.csv`
-5. At least one diagnostic figure:
+   * `<case>_<model>_val_metrics.csv` (point + event metrics)
+   * `<case>_<model>_test_metrics.csv` (point + event metrics)
 
-   * anomaly score timeline with true anomalies overlaid (validation and test).
+5. Diagnostic figures (at least):
+
+   * anomaly score timeline with true anomalies overlaid (validation and test),
+   * histogram / density of scores for normal vs anomalous points (test),
+   * optional event-level visualisations for key incidents (particularly in Case D).
 
 ### 8.2 Cross-model summary tables
 
-For each case, produce a single summary table comparing models:
+For each case, produce a single summary table comparing models, including:
 
-* model name
-* window length / feature set
-* validation PR-AUC (or chosen primary validation metric)
-* test PR-AUC
-* test F1 at chosen threshold
-* runtime (train + score)
+* model name,
+* window length / feature set,
+* validation event-F1 (or fallback metric),
+* test event-F1,
+* point-wise PR-AUC and AUROC on test,
+* runtime (train + score).
 
-A final cross-case table should summarise performance patterns across A–D.
-
----
-
-## 9) Planned execution order (recommended)
-
-1. Implement Tier 0 heuristics for all cases (fast baseline anchors).
-2. Implement Tier 1 classical baselines (IF, OC-SVM) using a consistent window-feature pipeline.
-3. Implement Tier 2 LSTM AE as the deep baseline.
-4. Implement Tier 3 diffusion model(s) with a minimal tuning plan.
-5. Add drift-aware breakdowns and event-aware evaluation.
-6. Only after real-data results are stable: decide whether to run synthetic-on-real experiments (`<synthetic_experiment_scope>`).
+A final cross-case table should summarise performance patterns across A–D, highlighting where diffusion models add value relative to simple and classical baselines.
 
 ---
 
-## 10) Charter-to-document mapping (how this supports writing up)
+## 9) Charter-to-document mapping (how this supports writing up)
 
-* **Methodology (Chapter 3):** Sections 3–8 define the modelling pipeline, leakage controls, and evaluation standards.
-* **Results (later chapter):** Section 8 ensures every result has a reproducible artefact trail and consistent comparison tables.
-* **Discussion:** Sections 1–7 ensure conclusions can be grounded in drift-aware evidence rather than only aggregate metrics.
+* **Chapter 3 – Methodology**
+  Sections 2–7 translate directly into the modelling pipeline, thresholding rules, event definitions, leakage controls, and evaluation metrics.
 
----
+* **Chapter 4 – Results / Findings**
+  Sections 7–8 define the structure of per-case result subsections and cross-model comparison tables, including event-level and point-wise metrics.
 
-## 11) Immediate next step
+* **Chapter 5 – Discussion**
+  Sections 1, 2, and 7 guide how to interpret successes and limitations, especially:
 
-Confirm the four placeholder decisions in Section 0. Once confirmed, proceed to implement:
+  * efficiency vs performance trade-offs,
+  * robustness under drift,
+  * differences between event-level and point-level views.
 
-* a shared windowing utility (contiguity-aware for Case D),
-* a baseline evaluation harness that outputs the standard artefacts for Tier 0 and Tier 1.
+* **Hybrid design (quantitative + qualitative)**
+  The same artefacts and metrics feed into the **Qualitative Reflection Log**, allowing the narrative to comment on:
+
+  * patterns across models and cases,
+  * where diffusion struggles or succeeds,
+  * how these insights map back to responsible and accessible AI principles in the proposal.
