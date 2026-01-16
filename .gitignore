@@ -4,3 +4,19 @@ data/
 .DS_Store
 __pycache__/
 .ipynb_checkpoints/
+
+# Jupyter
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+*.pyc
+__pycache__/
+
+# Local exports / renders
+exports/
+exports1/
+notebooks/exports/
+notebooks/Untitled.ipynb
+
+# Experiment artefacts
+results/
+
