@@ -2,7 +2,7 @@
 
 A portfolio project exploring how anomaly detection methods can be designed, compared, and evaluated on operational time-series data using a structured, notebook-based research workflow.
 
-This repository documents an earlier research attempt focused on **dynamic business time-series anomaly detection**, with experiments spanning **statistical baselines, classical machine learning, deep learning, and exploratory diffusion-based anomaly scoring**. While the project later evolved into a more focused telecommunications research direction, this version remains a strong portfolio example of applied data science, experimental design, and reproducible analytics.
+This repository documents a research attempt focused on **dynamic business time-series anomaly detection**, with experiments spanning **statistical baselines, classical machine learning, deep learning, and exploratory diffusion-based anomaly scoring**. While the project later evolved into a more focused telecommunications research direction, this version remains a strong portfolio example of applied data science, experimental design, and reproducible analytics.
 
 ---
 
